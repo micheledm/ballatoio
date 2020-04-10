@@ -61,7 +61,7 @@ def deviceRelay(cmd):
 def getTemperature():
         temp = connDht.temperature
         if temp is not None:
-            print("Current temperature is {} °C".format(temp))
+            print("Current temperature is {}C".format(temp))
             return temp
         else:
             print("Failed to retrieve temperature")
@@ -81,6 +81,10 @@ while True:
 #       getTemperature()
 #       getHumidity()
         deviceCamera("snap")
+        time.sleep(2)
+        deviceRelay("toggle")
+        time.sleep(3)
+        deviceRelay("toggle")
     except RuntimeError as error:
         print(error.args[0])
     except KeyboardInterrupt:
