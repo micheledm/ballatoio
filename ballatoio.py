@@ -3,7 +3,9 @@ import board
 import digitalio
 import adafruit_dht
 from picamera import PiCamera,Color
-from time import gmtime, strftime
+from time import gmtime, strftime, sleep
+import os
+from pathlib import Path
 
 connRelay = digitalio.DigitalInOut(board.D17)
 connRelay.direction = digitalio.Direction.OUTPUT
@@ -13,11 +15,18 @@ connDht = adafruit_dht.DHT22(board.D4)
 
 camera = PiCamera()
 
+def dirExists(dir):
+    Path(dir).mkdir(parents=True, exist_ok=True)
+
 def deviceCamera(cmd):
     if cmd == "snap":
-        dir = "/home/pi"
-        name = "image"
+        tm = str(strftime("%H%M%S", gmtime()))
+        dt = str(strftime("%Y%m%d", gmtime()))
+        ts = str(strftime("%Y%m%d-%H%M%S-ballatoio", gmtime()))
+        name = ts
         ext = "jpg"
+        dir = "/home/pi/storage/storage-3/picamera/" + dt
+        dirExists(dir)
         filename = "{}/{}.{}".format(dir,name,ext)
         timestamp = str(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
         pictureText = timestamp + ": T" + str(getTemperature()) + "C, H" + str(getHumidity())
@@ -77,14 +86,14 @@ def getHumidity():
 
 while True:
     try:
-        time.sleep(3)
+        time.sleep(10)
 #       getTemperature()
 #       getHumidity()
         deviceCamera("snap")
-        time.sleep(2)
-        deviceRelay("toggle")
-        time.sleep(3)
-        deviceRelay("toggle")
+#        time.sleep(2)
+#        deviceRelay("toggle")
+#        time.sleep(3)
+#        deviceRelay("toggle")
     except RuntimeError as error:
         print(error.args[0])
     except KeyboardInterrupt:
