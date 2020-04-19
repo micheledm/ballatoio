@@ -6,14 +6,29 @@ from picamera import PiCamera,Color
 from time import gmtime, strftime, sleep
 import os
 from pathlib import Path
+import paho.mqtt.client as mqtt
+import secrets_file
+import log
 
+#IMPOSTAZINI PIN BOARD
 connRelay = digitalio.DigitalInOut(board.D17)
 connRelay.direction = digitalio.Direction.OUTPUT
 connRelay.value = True
-
 connDht = adafruit_dht.DHT22(board.D4)
 
+#IMPOSTAZIONI CAMERA
 camera = PiCamera()
+
+#IMPOSTAZIONI MQTT
+mqtt_host = secrets_file.mqtt_host()
+mqtt_port = 1883
+mqtt_un = secrets_file.mqtt_un()
+mqtt_pw = secrets_file.mqtt_pw()
+
+#MQTT TOPICS
+mqtt_device = "/homeassistant/ballato.io/"
+topic_temp = mqtt_device + "temperature"
+topic_hum = mqtt_device + "humidity"
 
 def dirExists(dir):
     Path(dir).mkdir(parents=True, exist_ok=True)
@@ -30,15 +45,18 @@ def deviceCamera(cmd):
         filename = "{}/{}.{}".format(dir,name,ext)
         timestamp = str(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
         pictureText = timestamp + ": T" + str(getTemperature()) + "C, H" + str(getHumidity())
-        camera.start_preview()
-        camera.annotate_background = Color('blue')
-        camera.annotate_foreground = Color('yellow')
-        camera.annotate_text = pictureText
-        camera.rotation = 180
-        time.sleep(5)
-        camera.capture(filename)
-        camera.stop_preview()
-        print("Saving picture to " + filename)
+        try:
+            camera.start_preview()
+            camera.annotate_background = Color('blue')
+            camera.annotate_foreground = Color('yellow')
+            camera.annotate_text = pictureText
+            camera.rotation = 180
+            time.sleep(5)
+            camera.capture(filename)
+            camera.stop_preview()
+            print("Saving picture to " + filename)
+        except:
+            print(error.args[0])
 
 def deviceRelay(cmd):
     if cmd == "on":
@@ -68,34 +86,69 @@ def deviceRelay(cmd):
         print("Command not recognized")
 
 def getTemperature():
-        temp = connDht.temperature
-        if temp is not None:
-            print("Current temperature is {}C".format(temp))
-            return temp
-        else:
-            print("Failed to retrieve temperature")
+    temp = connDht.temperature
+    if temp is not None:
+#       print("Current temperature is {}C".format(temp))
+        return temp
+    else:
+        print("Failed to retrieve temperature")
+        return "error"
 
 def getHumidity():
     hum = connDht.humidity
     if hum is not None:
-        print("Current humidity level is {}%".format(hum))
+#       print("Current humidity level is {}%".format(hum))
         return hum
     else:
         print("Failed to retrieve temperature")
+        return "error"
 
+#COSE MQTT
+
+def mqttConnect():
+    global client
+    client = mqtt.Client()
+    client.username_pw_set(mqtt_un, password=mqtt_pw)
+    client.connect(mqtt_host, mqtt_port)
+    client.on_message=on_message
+    client.loop_start()
+    #client.on_log=on_log
+
+def mqttDisconnect():
+    client.loop_stop()
+    client.disconnect()
+
+def mqttPublish(tp, pl, rt):
+    if pl is not None or pl != "error":
+        client.publish(tp, payload=pl, qos=0, retain=rt)
+    else:
+        print("Skipping publishing with payload " + pl)
+#   print("Published on: %s with message %s and retain %s" % (tp, pl, rt))
+
+def on_message(client, userdata, message):
+    print("message received |",str(message.payload.decode("utf-8")).strip())
+    print("message topic=",message.topic)
+    print("message qos=",message.qos)
+    print("message retain flag=",message.retain)
+
+def on_log(client, userdata, level, buf):
+    print("log: ",buf)
+
+#INIZIALIZZAZIONE MQTT
+mqttConnect()
+client.subscribe(topic_temp)
+client.subscribe(topic_hum)
 
 while True:
     try:
-        time.sleep(10)
-#       getTemperature()
-#       getHumidity()
-        deviceCamera("snap")
-#        time.sleep(2)
-#        deviceRelay("toggle")
-#        time.sleep(3)
-#        deviceRelay("toggle")
+        curr_temp = getTemperature()
+        curr_hum = getHumidity()
+        mqttPublish(topic_temp,curr_temp, False)
+        mqttPublish(topic_hum,curr_hum,False)
+        time.sleep(5)
     except RuntimeError as error:
         print(error.args[0])
     except KeyboardInterrupt:
-         print('Kill by keyboard')
-         quit()
+        print('Kill by keyboard')
+        mqttDisconnect()
+        quit()
