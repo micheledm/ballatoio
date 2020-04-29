@@ -9,6 +9,8 @@ from pathlib import Path
 import paho.mqtt.client as mqtt
 import secrets_file
 import log
+from Bluetin_Echo import Echo
+
 
 #IMPOSTAZINI PIN BOARD
 connRelay = digitalio.DigitalInOut(board.D17)
@@ -18,6 +20,13 @@ connDht = adafruit_dht.DHT22(board.D4)
 
 #IMPOSTAZIONI CAMERA
 camera = PiCamera()
+
+#IMPOSTAZIONI SENSORE PROSSIMITA'
+prox_trigger_pin = 27
+prox_echo_pin = 22
+speed_of_sound = 315
+prox_samples = 10
+echo = Echo(prox_trigger_pin, prox_echo_pin, speed_of_sound)
 
 #IMPOSTAZIONI MQTT
 mqtt_host = secrets_file.mqtt_host()
@@ -33,30 +42,45 @@ topic_hum = mqtt_device + "humidity"
 def dirExists(dir):
     Path(dir).mkdir(parents=True, exist_ok=True)
 
-def deviceCamera(cmd):
+def deviceCamera(cmd, n):
+    dt = str(strftime("%Y%m%d", gmtime()))
+    dir = "/home/pi/storage/storage-3/picamera/" + dt
+    dirExists(dir)
     if cmd == "snap":
-        tm = str(strftime("%H%M%S", gmtime()))
-        dt = str(strftime("%Y%m%d", gmtime()))
+        ext = "jpg"
+        for x in range (0, n):
+            ts = str(strftime("%Y%m%d-%H%M%S-ballatoio", gmtime()))
+            name = ts
+            filename = "{}/{}.{}".format(dir,name,ext)
+            timestamp = str(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
+#            pictureText = timestamp + ": T" + str(getTemperature()) + "C, H" + str(getHumidity())
+            pictureText = "TEST"
+            try:
+                camera.start_preview()
+                camera.annotate_background = Color('blue')
+                camera.annotate_foreground = Color('yellow')
+                camera.annotate_text = pictureText
+                camera.rotation = 180
+                camera.capture(filename)
+                camera.stop_preview()
+                print("Saving picture to " + filename)
+            except:
+                print(error.args[0])
+    elif cmd == "video":
+        ext = "h264"
         ts = str(strftime("%Y%m%d-%H%M%S-ballatoio", gmtime()))
         name = ts
-        ext = "jpg"
-        dir = "/home/pi/storage/storage-3/picamera/" + dt
-        dirExists(dir)
         filename = "{}/{}.{}".format(dir,name,ext)
-        timestamp = str(strftime("%Y-%m-%d %H:%M:%S", gmtime()))
-        pictureText = timestamp + ": T" + str(getTemperature()) + "C, H" + str(getHumidity())
         try:
+            print("Starting a new video")
             camera.start_preview()
-            camera.annotate_background = Color('blue')
-            camera.annotate_foreground = Color('yellow')
-            camera.annotate_text = pictureText
-            camera.rotation = 180
-            time.sleep(5)
-            camera.capture(filename)
+            camera.start_recording(filename)
+            sleep(n)
+            camera.stop_recording()
             camera.stop_preview()
-            print("Saving picture to " + filename)
         except:
             print(error.args[0])
+
 
 def deviceRelay(cmd):
     if cmd == "on":
@@ -84,6 +108,15 @@ def deviceRelay(cmd):
             print("Something went wrong, relay value not recognized ({})".format(deviceRelay("status")))
     else:
         print("Command not recognized")
+
+def deviceProximity():
+    result = echo.read('cm', prox_samples)
+    if result > 0:
+        return result
+    else:
+        print("Proximity can't be 0, trying again")
+        sleep(1)
+        deviceProximity()
 
 def getTemperature():
     temp = connDht.temperature
@@ -135,20 +168,29 @@ def on_log(client, userdata, level, buf):
     print("log: ",buf)
 
 #INIZIALIZZAZIONE MQTT
+print("Initializing script")
 mqttConnect()
-client.subscribe(topic_temp)
-client.subscribe(topic_hum)
+#client.subscribe(topic_temp)
+#client.subscribe(topic_hum)
 
 while True:
     try:
-        curr_temp = getTemperature()
-        curr_hum = getHumidity()
-        mqttPublish(topic_temp,curr_temp, False)
-        mqttPublish(topic_hum,curr_hum,False)
+#        curr_temp = getTemperature()
+#        curr_hum = getHumidity()
+#        mqttPublish(topic_temp,curr_temp, False)
+#        mqttPublish(topic_hum,curr_hum,False)
+#        deviceCamera("snap", 5)
+        proximity = deviceProximity()
+        print("Proximity sensor " + str(proximity))
+        if proximity < 30:
+            deviceCamera("video", 30)
         time.sleep(5)
+
     except RuntimeError as error:
+        echo.stop()
         print(error.args[0])
     except KeyboardInterrupt:
         print('Kill by keyboard')
+        echo.stop()
         mqttDisconnect()
         quit()
